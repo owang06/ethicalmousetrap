@@ -43,12 +43,9 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
 
   const getStatusColor = () => {
     switch (status) {
-      case 'green':
+      case 'active':
         return '#a8c090'
-      case 'yellow':
-        return '#e8b870'
-      case 'red':
-        return '#d88a6a'
+      case 'inactive':
       default:
         return '#8b7355'
     }

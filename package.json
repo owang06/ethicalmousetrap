@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -n \"NEXT,DETECTOR\" -c \"blue,green\" \"next dev\" \"python3 mouse_detector.py --background\"",
+    "dev:next": "next dev",
+    "dev:detector": "python3 mouse_detector.py --background",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -19,7 +21,8 @@
     "@types/react-dom": "^18",
     "typescript": "^5",
     "eslint": "^8",
-    "eslint-config-next": "^14.0.0"
+    "eslint-config-next": "^14.0.0",
+    "concurrently": "^8.2.2"
   }
 }
 

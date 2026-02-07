@@ -12,12 +12,9 @@ interface MouseTrapProps {
 export default function MouseTrap({ room, position, color, onClick }: MouseTrapProps) {
   const getColor = () => {
     switch (color) {
-      case 'green':
+      case 'active':
         return '#a8c090'
-      case 'yellow':
-        return '#e8b870'
-      case 'red':
-        return '#d88a6a'
+      case 'inactive':
       default:
         return '#8b7355'
     }

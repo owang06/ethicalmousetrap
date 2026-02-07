@@ -7,10 +7,29 @@ Takes a photo when you press Enter and uses Gemini to detect if it's a mouse/rat
 import cv2
 import os
 import time
+import sys
+import argparse
+import json
+import base64
+
+# Check for Flask before importing
+try:
+    from flask import Flask, request, jsonify
+    from flask_cors import CORS
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
+    print("ERROR: Flask is not installed!")
+    print("Please install Flask and flask-cors:")
+    print("  pip install flask flask-cors")
+    print("Or install all requirements:")
+    print("  pip install -r requirements_detector.txt")
+
 import google.generativeai as genai
 
 class MouseDetector:
-    def __init__(self):
+    def __init__(self, background_mode=False):
+        self.background_mode = background_mode
         # Try to load from .env file manually
         self.api_key = None
         env_path = '.env'
@@ -35,7 +54,7 @@ class MouseDetector:
             print("ERROR: Please set GEMINI_API_KEY in .env file")
             print("Create a .env file with: GEMINI_API_KEY=your-actual-key-here")
             exit(1)
-        
+            
         # Configure Gemini
         genai.configure(api_key=self.api_key)
         
@@ -135,7 +154,10 @@ class MouseDetector:
             if not self.cap.isOpened():
                 raise Exception("Could not open camera")
             print("Camera initialized successfully!")
-            print("Press ENTER to capture and detect, or 'q' to quit")
+            if not self.background_mode:
+                print("Press ENTER to capture and detect, or 'q' to quit")
+            else:
+                print("Running in background mode - camera is active")
         except Exception as e:
             print(f"Camera error: {str(e)}")
             print("Make sure your camera is connected and permissions are granted")
@@ -162,8 +184,22 @@ class MouseDetector:
             elif key == ord('q'):
                 return None
         
-    def capture_and_detect(self, frame):
+    def capture_frame(self):
+        """Capture a frame from the camera"""
+        if not self.cap or not self.cap.isOpened():
+            return None
+        ret, frame = self.cap.read()
+        if not ret:
+            return None
+        return frame
+    
+    def capture_and_detect(self, frame=None):
         """Detect mouse/rat in captured frame"""
+        if frame is None:
+            frame = self.capture_frame()
+            if frame is None:
+                return "Error: Could not capture frame from camera"
+        
         # Save captured image temporarily
         cv2.imwrite("temp_capture.jpg", frame)
         print("\nImage captured! Sending to Gemini AI...")
@@ -182,9 +218,8 @@ class MouseDetector:
     def detect_with_gemini(self, image_path):
         """Send image to Gemini API for detection"""
         try:
-            # Read image
-            with open(image_path, 'rb') as f:
-                image_data = f.read()
+            if not os.path.exists(image_path):
+                return f"Error: Image file not found: {image_path}"
             
             # Create prompt
             prompt = "Look at this image and determine if there is a mouse or rat visible. Respond with ONLY one of these options: 'MOUSE/RAT DETECTED' or 'NO MOUSE/RAT'. Be very specific - only respond if you can clearly see a mouse or rat in the image."
@@ -194,15 +229,176 @@ class MouseDetector:
             img = PIL.Image.open(image_path)
             
             # Generate content
+            if not self.model:
+                return "Error: Gemini model not initialized"
+            
             response = self.model.generate_content([prompt, img])
+            
+            if not response or not hasattr(response, 'text'):
+                return "Error: Invalid response from Gemini API"
             
             return response.text.strip()
                 
         except Exception as e:
-            return f"Error: {str(e)}"
+            import traceback
+            error_msg = f"Error in detect_with_gemini: {str(e)}"
+            print(error_msg)
+            traceback.print_exc()
+            return error_msg
     
     def run(self):
         """Main loop"""
+        if self.background_mode:
+            self.run_background()
+        else:
+            self.run_interactive()
+    
+    def run_background(self):
+        """Run in background mode with HTTP API server"""
+        if not FLASK_AVAILABLE:
+            print("\n" + "="*60)
+            print("ERROR: Cannot run in background mode - Flask is not installed!")
+            print("="*60)
+            print("\nTo fix this, install Flask:")
+            print("  pip install flask flask-cors")
+            print("\nOr install all requirements:")
+            print("  pip install -r requirements_detector.txt")
+            print("\n" + "="*60)
+            exit(1)
+        
+        # Determine port early so we can use it in messages
+        # macOS often uses port 5000 for AirPlay, so start with 5001
+        import socket
+        self.port = 5001  # Default to 5001 to avoid macOS AirPlay conflict
+        for test_port in [5001, 5000, 5002, 8000]:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.bind(('127.0.0.1', test_port))
+                sock.close()
+                self.port = test_port
+                break
+            except OSError:
+                continue
+        
+        app = Flask(__name__)
+        CORS(app)  # Enable CORS for Next.js app
+        
+        @app.route('/health', methods=['GET'])
+        def health():
+            return jsonify({'status': 'ok', 'camera': self.cap.isOpened() if self.cap else False})
+        
+        @app.route('/detect', methods=['POST'])
+        def detect():
+            try:
+                print("Detection request received")
+                # Capture frame from camera
+                frame = self.capture_frame()
+                if frame is None:
+                    print("ERROR: Could not capture frame from camera")
+                    return jsonify({'error': 'Could not capture frame from camera', 'status': 'error'}), 500
+                
+                print("Frame captured, starting detection...")
+                # Detect mouse
+                result = self.capture_and_detect(frame)
+                print(f"Detection result: {result}")
+                
+                # Determine if mouse was detected
+                detected = 'MOUSE/RAT DETECTED' in result.upper() or 'DETECTED' in result.upper()
+                
+                response_data = {
+                    'detected': detected,
+                    'result': result,
+                    'status': 'success'
+                }
+                print(f"Returning response: {response_data}")
+                return jsonify(response_data)
+            except Exception as e:
+                print(f"ERROR in detect route: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': str(e), 'status': 'error'}), 500
+        
+        @app.route('/capture', methods=['GET'])
+        def capture_image():
+            """Capture and return image as base64"""
+            try:
+                frame = self.capture_frame()
+                if frame is None:
+                    return jsonify({'error': 'Could not capture frame'}), 500
+                
+                # Encode frame as JPEG
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if not ret:
+                    return jsonify({'error': 'Could not encode image'}), 500
+                
+                img_base64 = base64.b64encode(buffer).decode('utf-8')
+                return jsonify({
+                    'image': f'data:image/jpeg;base64,{img_base64}',
+                    'status': 'success'
+                })
+            except Exception as e:
+                return jsonify({'error': str(e), 'status': 'error'}), 500
+        
+        # Add error handler for all exceptions
+        @app.errorhandler(Exception)
+        def handle_exception(e):
+            print(f"Error in Flask app: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e), 'status': 'error'}), 500
+        
+        print("Mouse detector running in background mode with API server...")
+        print("Camera is active and ready for use")
+        print(f"API server starting on http://127.0.0.1:{self.port}")
+        print("  GET  /health - Check server and camera status")
+        print("  POST /detect - Capture and detect mouse")
+        print("  GET  /capture - Capture image")
+        
+        # Keep the camera stream active by reading frames periodically
+        def keep_camera_alive():
+            while True:
+                try:
+                    if self.cap and self.cap.isOpened():
+                        ret, frame = self.cap.read()
+                        if not ret:
+                            print("Warning: Could not read from camera")
+                            time.sleep(1)
+                            continue
+                    time.sleep(0.1)
+                except Exception as e:
+                    print(f"Error in camera thread: {e}")
+                    time.sleep(1)
+        
+        import threading
+        camera_thread = threading.Thread(target=keep_camera_alive, daemon=True)
+        camera_thread.start()
+        
+        try:
+            print("\n" + "="*60)
+            print("Starting Flask server...")
+            print("="*60 + "\n")
+            print(f"Starting Flask server on http://127.0.0.1:{self.port}")
+            print("="*60 + "\n")
+            # Use 127.0.0.1 for better compatibility, threaded=True for concurrent requests
+            app.run(host='127.0.0.1', port=self.port, debug=False, use_reloader=False, threaded=True)
+        except KeyboardInterrupt:
+            print("\n\nShutting down Flask server...")
+        except Exception as e:
+            print(f"\nFATAL ERROR starting Flask server: {e}")
+            import traceback
+            traceback.print_exc()
+            print("\n" + "="*60)
+            print("Troubleshooting:")
+            print("1. Make sure Flask is installed: pip install flask flask-cors")
+            print("2. Check if port 5000 is already in use")
+            print("3. Make sure you have the required permissions")
+            print("="*60 + "\n")
+        finally:
+            print("Cleaning up...")
+            self.cleanup()
+    
+    def run_interactive(self):
+        """Run in interactive mode with GUI"""
         try:
             while True:
                 frame = self.show_preview()
@@ -231,10 +427,16 @@ class MouseDetector:
         """Cleanup resources"""
         if self.cap:
             self.cap.release()
-        cv2.destroyAllWindows()
+        if not self.background_mode:
+            cv2.destroyAllWindows()
 
 def main():
-    detector = MouseDetector()
+    parser = argparse.ArgumentParser(description='Mouse/Rat Detector using Gemini AI')
+    parser.add_argument('--background', action='store_true', 
+                       help='Run in background mode without GUI windows')
+    args = parser.parse_args()
+    
+    detector = MouseDetector(background_mode=args.background)
     detector.run()
 
 if __name__ == "__main__":

@@ -1,19 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import HouseLayout from '@/components/HouseLayout'
 import MouseTrap from '@/components/MouseTrap'
 import CameraFeed from '@/components/CameraFeed'
 
 export default function Home() {
   const [trapStates, setTrapStates] = useState<{ [key: string]: string }>({
-    kitchen: 'default',
-    livingRoom: 'default',
-    bedroom: 'default',
+    kitchen: 'inactive',
+    livingRoom: 'inactive',
+    bedroom: 'inactive',
   })
 
   const [selectedTrap, setSelectedTrap] = useState<string | null>(null)
   const [enlargedTrap, setEnlargedTrap] = useState<string | null>(null)
+  const [detectionResult, setDetectionResult] = useState<string | null>(null)
+  const [isDetecting, setIsDetecting] = useState(false)
 
   // Updated positions based on actual floor plan layout:
   // Kitchen: bottom-right area
@@ -26,12 +28,11 @@ export default function Home() {
   ]
 
   const handleTrapClick = (room: string) => {
-    const colors = ['default', 'green', 'yellow', 'red']
-    const currentIndex = colors.indexOf(trapStates[room])
-    const nextIndex = (currentIndex + 1) % colors.length
+    // Toggle between inactive and active
+    const newState = trapStates[room] === 'inactive' ? 'active' : 'inactive'
     setTrapStates({
       ...trapStates,
-      [room]: colors[nextIndex],
+      [room]: newState,
     })
     setSelectedTrap(room)
     // Enlarge the corresponding camera feed
@@ -39,14 +40,79 @@ export default function Home() {
   }
 
   const getStatusCounts = () => {
-    const counts = { default: 0, green: 0, yellow: 0, red: 0 }
+    const counts = { inactive: 0, active: 0 }
     Object.values(trapStates).forEach(state => {
-      counts[state as keyof typeof counts]++
+      if (state === 'inactive' || state === 'active') {
+        counts[state as keyof typeof counts]++
+      }
     })
     return counts
   }
 
   const statusCounts = getStatusCounts()
+
+  const triggerDetection = useCallback(async () => {
+    setIsDetecting(true)
+    setDetectionResult(null)
+    
+    try {
+      const response = await fetch('/api/detect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+      
+      if (data.status === 'success') {
+        setDetectionResult(data.result)
+        // Update trap state if mouse detected
+        if (data.detected && selectedTrap) {
+          // You could update the trap state here if needed
+        }
+      } else {
+        setDetectionResult(`Error: ${data.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Detection error:', error)
+      setDetectionResult('Error: Failed to connect to detector service')
+    } finally {
+      setIsDetecting(false)
+    }
+  }, [selectedTrap])
+
+  // Handle keyboard events for detection
+  useEffect(() => {
+    const handleKeyPress = async (e: KeyboardEvent) => {
+      // Only trigger on Enter key
+      if (e.key === 'Enter' && !isDetecting) {
+        await triggerDetection()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [isDetecting, triggerDetection])
+
+  // Mock mouse status data - in real app this would come from API/detection
+  const getMouseStatus = (trapId: string) => {
+    // Simulate different statuses based on trap state
+    if (trapStates[trapId] === 'active') {
+      return {
+        detected: Math.random() > 0.5, // Random for demo
+        lastSeen: Math.floor(Math.random() * 10) + 1,
+        confidence: Math.floor(Math.random() * 30) + 70,
+        activity: Math.random() > 0.6 ? 'high' : 'low'
+      }
+    }
+    return {
+      detected: false,
+      lastSeen: null,
+      confidence: 0,
+      activity: 'none'
+    }
+  }
 
   return (
     <main style={{ 
@@ -111,6 +177,52 @@ export default function Home() {
           opacity: 0.6
         }}>🐭</div>
       </div>
+
+      {/* Detection Result Notification */}
+      {(detectionResult || isDetecting) && (
+        <div style={{
+          position: 'fixed',
+          top: '90px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2000,
+          backgroundColor: '#3d3424',
+          border: '2px solid #8b7355',
+          borderRadius: '8px',
+          padding: '16px 24px',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+          maxWidth: '500px',
+          textAlign: 'center'
+        }}>
+          {isDetecting ? (
+            <div style={{ color: '#f5e6d3', fontSize: '0.9rem' }}>
+              🔍 Detecting mouse...
+            </div>
+          ) : (
+            <div>
+              <div style={{ 
+                color: detectionResult?.toUpperCase().includes('DETECTED') ? '#a8c090' : '#d4c4a8',
+                fontSize: '1rem',
+                fontWeight: '600',
+                marginBottom: '4px'
+              }}>
+                {detectionResult?.toUpperCase().includes('DETECTED') ? '🐭 MOUSE DETECTED!' : '✓ No mouse detected'}
+              </div>
+              <div style={{ color: '#d4c4a8', fontSize: '0.8rem', marginTop: '4px' }}>
+                {detectionResult}
+              </div>
+              <div style={{ 
+                color: '#8b7355', 
+                fontSize: '0.7rem', 
+                marginTop: '8px',
+                fontStyle: 'italic'
+              }}>
+                Press ENTER to detect again
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Camera Feeds Section */}
       <div style={{
@@ -198,64 +310,147 @@ export default function Home() {
                 <div style={{ width: '10px', height: '10px', backgroundColor: '#8b7355', borderRadius: '50%', border: '1px solid #6b5d47' }}></div>
                 <span style={{ fontSize: '0.85rem', color: '#f5e6d3' }}>Inactive</span>
               </div>
-              <span style={{ fontSize: '0.85rem', color: '#d4c4a8', fontWeight: '500' }}>{statusCounts.default}</span>
+              <span style={{ fontSize: '0.85rem', color: '#d4c4a8', fontWeight: '500' }}>{statusCounts.inactive}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{ width: '10px', height: '10px', backgroundColor: '#a8c090', borderRadius: '50%', border: '1px solid #88a070' }}></div>
                 <span style={{ fontSize: '0.85rem', color: '#f5e6d3' }}>Active</span>
               </div>
-              <span style={{ fontSize: '0.85rem', color: '#d4c4a8', fontWeight: '500' }}>{statusCounts.green}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '10px', height: '10px', backgroundColor: '#e8b870', borderRadius: '50%', border: '1px solid #d4a050' }}></div>
-                <span style={{ fontSize: '0.85rem', color: '#f5e6d3' }}>Warning</span>
-              </div>
-              <span style={{ fontSize: '0.85rem', color: '#d4c4a8', fontWeight: '500' }}>{statusCounts.yellow}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '10px', height: '10px', backgroundColor: '#d88a6a', borderRadius: '50%', border: '1px solid #c07050' }}></div>
-                <span style={{ fontSize: '0.85rem', color: '#f5e6d3' }}>Alert</span>
-              </div>
-              <span style={{ fontSize: '0.85rem', color: '#d4c4a8', fontWeight: '500' }}>{statusCounts.red}</span>
+              <span style={{ fontSize: '0.85rem', color: '#d4c4a8', fontWeight: '500' }}>{statusCounts.active}</span>
             </div>
           </div>
         </div>
 
         {/* Selected Trap Info */}
         {selectedTrap && (
-          <div style={{
-            backgroundColor: '#3d3424',
-            border: '2px solid #8b7355',
-            borderRadius: '8px',
-            padding: '16px',
-            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
-          }}>
+          <>
             <div style={{
-              fontSize: '0.65rem',
-              color: '#d4c4a8',
-              textTransform: 'uppercase',
-              letterSpacing: '1.5px',
-              marginBottom: '12px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
+              backgroundColor: '#3d3424',
+              border: '2px solid #8b7355',
+              borderRadius: '8px',
+              padding: '16px',
+              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
             }}>
-              <span>🧀</span> Selected
+              <div style={{
+                fontSize: '0.65rem',
+                color: '#d4c4a8',
+                textTransform: 'uppercase',
+                letterSpacing: '1.5px',
+                marginBottom: '12px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <span>🧀</span> Selected
+              </div>
+              <div style={{ fontSize: '1rem', marginBottom: '8px', fontWeight: '600', color: '#f5e6d3' }}>
+                {traps.find(t => t.id === selectedTrap)?.name}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#d4c4a8', marginBottom: '8px' }}>
+                Status: <span style={{ color: '#f5e6d3', textTransform: 'capitalize', fontWeight: '500' }}>{trapStates[selectedTrap]}</span>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#d4c4a8' }}>
+                Last: <span style={{ color: '#f5e6d3', fontWeight: '500' }}>2m ago</span>
+              </div>
             </div>
-            <div style={{ fontSize: '1rem', marginBottom: '8px', fontWeight: '600', color: '#f5e6d3' }}>
-              {traps.find(t => t.id === selectedTrap)?.name}
-            </div>
-            <div style={{ fontSize: '0.8rem', color: '#d4c4a8', marginBottom: '8px' }}>
-              Status: <span style={{ color: '#f5e6d3', textTransform: 'capitalize', fontWeight: '500' }}>{trapStates[selectedTrap]}</span>
-            </div>
-            <div style={{ fontSize: '0.8rem', color: '#d4c4a8' }}>
-              Last: <span style={{ color: '#f5e6d3', fontWeight: '500' }}>2m ago</span>
-            </div>
-          </div>
+
+            {/* Mouse Status Section */}
+            {(() => {
+              const mouseStatus = getMouseStatus(selectedTrap)
+              return (
+                <div style={{
+                  backgroundColor: '#3d3424',
+                  border: '2px solid #8b7355',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)'
+                }}>
+                  <div style={{
+                    fontSize: '0.65rem',
+                    color: '#d4c4a8',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1.5px',
+                    marginBottom: '12px',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <span>🐭</span> Mouse Status
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', color: '#d4c4a8' }}>Detected:</span>
+                      <span style={{ 
+                        fontSize: '0.85rem', 
+                        fontWeight: '600',
+                        color: mouseStatus.detected ? '#a8c090' : '#8b7355'
+                      }}>
+                        {mouseStatus.detected ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                    
+                    {mouseStatus.detected && (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.85rem', color: '#d4c4a8' }}>Last Seen:</span>
+                          <span style={{ fontSize: '0.85rem', color: '#f5e6d3', fontWeight: '500' }}>
+                            {mouseStatus.lastSeen}m ago
+                          </span>
+                        </div>
+                        
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.85rem', color: '#d4c4a8' }}>Confidence:</span>
+                          <span style={{ fontSize: '0.85rem', color: '#f5e6d3', fontWeight: '500' }}>
+                            {mouseStatus.confidence}%
+                          </span>
+                        </div>
+                        
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.85rem', color: '#d4c4a8' }}>Activity:</span>
+                          <span style={{ 
+                            fontSize: '0.85rem', 
+                            fontWeight: '600',
+                            color: mouseStatus.activity === 'high' ? '#e8b870' : '#a8c090',
+                            textTransform: 'capitalize'
+                          }}>
+                            {mouseStatus.activity}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    
+                    {!mouseStatus.detected && trapStates[selectedTrap] === 'active' && (
+                      <div style={{ 
+                        fontSize: '0.75rem', 
+                        color: '#8b7355', 
+                        fontStyle: 'italic',
+                        textAlign: 'center',
+                        paddingTop: '4px'
+                      }}>
+                        Monitoring...
+                      </div>
+                    )}
+                    
+                    {!mouseStatus.detected && trapStates[selectedTrap] === 'inactive' && (
+                      <div style={{ 
+                        fontSize: '0.75rem', 
+                        color: '#8b7355', 
+                        fontStyle: 'italic',
+                        textAlign: 'center',
+                        paddingTop: '4px'
+                      }}>
+                        Trap inactive
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+          </>
         )}
 
         {/* System Info */}
