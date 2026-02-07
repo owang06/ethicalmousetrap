@@ -13,6 +13,7 @@ export default function Home() {
   })
 
   const [selectedTrap, setSelectedTrap] = useState<string | null>(null)
+  const [enlargedTrap, setEnlargedTrap] = useState<string | null>(null)
 
   // Updated positions based on actual floor plan layout:
   // Kitchen: bottom-right area
@@ -33,6 +34,8 @@ export default function Home() {
       [room]: colors[nextIndex],
     })
     setSelectedTrap(room)
+    // Enlarge the corresponding camera feed
+    setEnlargedTrap(room)
   }
 
   const getStatusCounts = () => {
@@ -283,6 +286,157 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Enlarged Camera Feed Modal */}
+      {enlargedTrap && (
+        <>
+          <style jsx>{`
+            @keyframes fadeIn {
+              from {
+                opacity: 0;
+              }
+              to {
+                opacity: 1;
+              }
+            }
+            @keyframes scaleIn {
+              from {
+                transform: scale(0.8);
+                opacity: 0;
+              }
+              to {
+                transform: scale(1);
+                opacity: 1;
+              }
+            }
+          `}</style>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.85)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              animation: 'fadeIn 0.3s ease-out',
+            }}
+            onClick={() => setEnlargedTrap(null)}
+          >
+            <div
+              style={{
+                position: 'relative',
+                width: '90%',
+                maxWidth: '1200px',
+                height: '85%',
+                maxHeight: '800px',
+                backgroundColor: '#3d3424',
+                borderRadius: '12px',
+                border: '3px solid #8b7355',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                animation: 'scaleIn 0.3s ease-out',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setEnlargedTrap(null)}
+                style={{
+                  position: 'absolute',
+                  top: '16px',
+                  right: '16px',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(216, 138, 106, 0.9)',
+                  border: '2px solid #d88a6a',
+                  color: '#2a2418',
+                  fontSize: '24px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 1001,
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                  lineHeight: '1',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#d88a6a'
+                  e.currentTarget.style.transform = 'scale(1.1)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(216, 138, 106, 0.9)'
+                  e.currentTarget.style.transform = 'scale(1)'
+                }}
+              >
+                ×
+              </button>
+
+              {/* Enlarged Camera Feed */}
+              <div style={{
+                width: '100%',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: '20px',
+              }}>
+                <div style={{
+                  fontSize: '1.5rem',
+                  fontWeight: '600',
+                  color: '#f5e6d3',
+                  marginBottom: '16px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                }}>
+                  <span>🧀</span>
+                  {traps.find(t => t.id === enlargedTrap)?.name} Camera Feed
+                </div>
+                
+                <div style={{
+                  flex: 1,
+                  width: '100%',
+                  backgroundColor: '#2a2418',
+                  borderRadius: '8px',
+                  border: '2px solid #8b7355',
+                  overflow: 'hidden',
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'stretch',
+                  justifyContent: 'stretch',
+                  padding: '0',
+                }}>
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}>
+                    <CameraFeed
+                      trapId={enlargedTrap}
+                      trapName={traps.find(t => t.id === enlargedTrap)?.name || ''}
+                      status={trapStates[enlargedTrap]}
+                      isSelected={true}
+                      onClick={() => {}}
+                      enlarged={true}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </main>
   )
 }
