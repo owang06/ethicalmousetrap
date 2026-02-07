@@ -13,13 +13,13 @@ export default function MouseTrap({ room, position, color, onClick }: MouseTrapP
   const getColor = () => {
     switch (color) {
       case 'green':
-        return '#48bb78'
+        return '#a8c090'
       case 'yellow':
-        return '#ed8936'
+        return '#e8b870'
       case 'red':
-        return '#f56565'
+        return '#d88a6a'
       default:
-        return '#4a5568'
+        return '#8b7355'
     }
   }
 
@@ -33,63 +33,34 @@ export default function MouseTrap({ room, position, color, onClick }: MouseTrapP
         left: `${position.x}%`,
         top: `${position.y}%`,
         cursor: 'pointer',
-        transition: 'all 0.3s ease',
+        transition: 'transform 0.2s ease',
         transform: 'translate(-50%, -50%)',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translate(-50%, -50%) scale(1.2)'
+        e.currentTarget.style.transform = 'translate(-50%, -50%) scale(1.3)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'translate(-50%, -50%) scale(1)'
       }}
     >
-      {/* Trap icon */}
       <div style={{
-        width: '40px',
-        height: '40px',
+        position: 'relative',
+        width: '36px',
+        height: '36px',
         backgroundColor: trapColor,
         borderRadius: '50%',
-        border: '3px solid white',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+        border: '3px solid #2a2418',
+        boxShadow: `0 0 20px ${trapColor}60, 0 0 10px ${trapColor}40, inset 0 2px 4px rgba(255,255,255,0.1)`,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative'
+        justifyContent: 'center'
       }}>
-        {/* Mouse icon inside */}
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="white"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
-          <circle cx="12" cy="9" r="2.5" fill="white" />
-        </svg>
-      </div>
-      
-      {/* Room label */}
-      <div style={{
-        position: 'absolute',
-        top: '50px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        fontSize: '11px',
-        fontWeight: 'bold',
-        color: '#2d3748',
-        backgroundColor: 'rgba(255,255,255,0.8)',
-        padding: '2px 6px',
-        borderRadius: '4px',
-        whiteSpace: 'nowrap',
-        pointerEvents: 'none'
-      }}>
-        {room}
+        {/* Cheese/trap icon */}
+        <div style={{
+          fontSize: '18px',
+          filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))'
+        }}>🧀</div>
       </div>
     </div>
   )
 }
-
