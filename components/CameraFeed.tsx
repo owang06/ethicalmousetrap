@@ -8,9 +8,10 @@ interface CameraFeedProps {
   status: string
   isSelected: boolean
   onClick: () => void
+  enlarged?: boolean
 }
 
-export default function CameraFeed({ trapId, trapName, status, isSelected, onClick }: CameraFeedProps) {
+export default function CameraFeed({ trapId, trapName, status, isSelected, onClick, enlarged = false }: CameraFeedProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,28 +60,29 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
       style={{
         backgroundColor: '#3d3424',
         border: `2px solid ${isSelected ? getStatusColor() : '#8b7355'}`,
-        borderRadius: '8px',
-        padding: '10px 14px 12px 14px',
-        cursor: 'pointer',
+        borderRadius: enlarged ? '0' : '8px',
+        padding: enlarged ? '0' : '10px 14px 12px 14px',
+        cursor: enlarged ? 'default' : 'pointer',
         transition: 'all 0.2s ease',
         position: 'relative',
         overflow: 'hidden',
         boxShadow: isSelected ? `0 0 12px ${getStatusColor()}40` : 'inset 0 2px 4px rgba(0,0,0,0.2)',
         width: '100%',
+        height: enlarged ? '100%' : 'auto',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        flex: '1',
+        flex: enlarged ? '1' : '1',
         minHeight: 0,
         justifyContent: 'space-between'
       }}
       
-      onMouseEnter={(e) => {
+      onMouseEnter={enlarged ? undefined : (e) => {
         e.currentTarget.style.borderColor = getStatusColor()
         e.currentTarget.style.backgroundColor = '#4a3f2e'
         e.currentTarget.style.boxShadow = `0 0 12px ${getStatusColor()}40`
       }}
-      onMouseLeave={(e) => {
+      onMouseLeave={enlarged ? undefined : (e) => {
         if (!isSelected) {
           e.currentTarget.style.borderColor = '#8b7355'
           e.currentTarget.style.backgroundColor = '#3d3424'
@@ -105,17 +107,19 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
       {/* Camera placeholder or live feed */}
       <div style={{
         width: '100%',
-        aspectRatio: '16/9',
+        aspectRatio: enlarged ? 'auto' : '16/9',
+        height: enlarged ? '100%' : 'auto',
         backgroundColor: '#2a2418',
-        borderRadius: '4px',
+        borderRadius: enlarged ? '0' : '4px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: '8px',
-        border: '2px solid #8b7355',
+        marginBottom: enlarged ? '0' : '8px',
+        border: enlarged ? 'none' : '2px solid #8b7355',
         position: 'relative',
         overflow: 'hidden',
-        flexShrink: 0
+        flexShrink: 0,
+        flex: enlarged ? '1' : '0 0 auto'
       }}>
         {isKitchen ? (
           <>
@@ -176,22 +180,24 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
       </div>
 
       {/* Trap name */}
-      <div style={{
-        fontSize: '0.8rem',
-        color: '#d4c4a8',
-        textTransform: 'uppercase',
-        letterSpacing: '0.5px',
-        fontWeight: '600',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '8px',
-        width: '100%',
-        marginTop: 'auto'
-      }}>
-        <span style={{ fontSize: '14px' }}>🧀</span>
-        {trapName}
-      </div>
+      {!enlarged && (
+        <div style={{
+          fontSize: '0.8rem',
+          color: '#d4c4a8',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          width: '100%',
+          marginTop: 'auto'
+        }}>
+          <span style={{ fontSize: '14px' }}>🧀</span>
+          {trapName}
+        </div>
+      )}
     </div>
   )
 }
