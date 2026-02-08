@@ -14,7 +14,7 @@ import base64
 
 # Check for Flask before importing
 try:
-    from flask import Flask, request, jsonify
+    from flask import Flask, request, jsonify, Response
     from flask_cors import CORS
     FLASK_AVAILABLE = True
 except ImportError:
@@ -70,7 +70,7 @@ class MouseDetector:
                     short_name = full_name.replace('models/', '')
                     available_models.append(short_name)
                     model_name_map[short_name] = full_name
-                    print(f"  ✓ {short_name} (full: {full_name})")
+                    print(f"  [OK] {short_name} (full: {full_name})")
         except Exception as e:
             print(f"  Warning: Could not list models: {e}")
         
@@ -100,14 +100,14 @@ class MouseDetector:
                 for model_id in model_to_try:
                     try:
                         self.model = genai.GenerativeModel(model_id)
-                        print(f"✓ Model object created with {model_name}")
+                        print(f"[OK] Model object created with {model_name}")
                         model_initialized = True
                         break
                     except Exception as init_e:
                         continue
                 
                 if not model_initialized:
-                    print(f"✗ Could not create model object for {model_name}")
+                    print(f"[ERROR] Could not create model object for {model_name}")
                     continue
                 
                 # Test the model with a simple text+image call to verify it actually works
@@ -116,13 +116,13 @@ class MouseDetector:
                     import PIL.Image
                     test_img = PIL.Image.new('RGB', (1, 1), color='white')
                     test_response = self.model.generate_content(["Say 'test'", test_img])
-                    print(f"✓ Gemini AI initialized and verified with {model_name}!")
+                    print(f"[OK] Gemini AI initialized and verified with {model_name}!")
                     break
                 except Exception as test_e:
                     error_msg = str(test_e)
                     # If it's a 404, this model definitely doesn't work
                     if '404' in error_msg or 'not found' in error_msg.lower():
-                        print(f"  ✗ This model is not available for your API key")
+                        print("  [ERROR] This model is not available for your API key")
                         print(f"  Error: {error_msg}")
                         print(f"  Trying next model...")
                     else:
@@ -133,7 +133,7 @@ class MouseDetector:
                     continue
                     
             except Exception as e:
-                print(f"✗ Trying {model_name}... failed: {e}")
+                print(f"[ERROR] Trying {model_name}... failed: {e}")
                 continue
         
         if not self.model:
@@ -338,6 +338,22 @@ class MouseDetector:
                 })
             except Exception as e:
                 return jsonify({'error': str(e), 'status': 'error'}), 500
+
+        def generate_frames():
+            while True:
+                frame = self.capture_frame()
+                if frame is None:
+                    time.sleep(0.1)
+                    continue
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if not ret:
+                    continue
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
+        @app.route('/stream', methods=['GET'])
+        def stream():
+            return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
         
         # Add error handler for all exceptions
         @app.errorhandler(Exception)
@@ -353,6 +369,7 @@ class MouseDetector:
         print("  GET  /health - Check server and camera status")
         print("  POST /detect - Capture and detect mouse")
         print("  GET  /capture - Capture image")
+        print("  GET  /stream - Live MJPEG stream")
         
         # Keep the camera stream active by reading frames periodically
         def keep_camera_alive():

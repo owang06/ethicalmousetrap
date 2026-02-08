@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 interface CameraFeedProps {
   trapId: string
@@ -12,34 +12,57 @@ interface CameraFeedProps {
 }
 
 export default function CameraFeed({ trapId, trapName, status, isSelected, onClick, enlarged = false }: CameraFeedProps) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [streamUrl, setStreamUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const isKitchen = trapId === 'kitchen'
 
   useEffect(() => {
-    if (isKitchen && videoRef.current) {
-      // Request camera access
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then((mediaStream) => {
-          setStream(mediaStream)
-          if (videoRef.current) {
-            videoRef.current.srcObject = mediaStream
-          }
-        })
-        .catch((err) => {
-          console.error('Error accessing camera:', err)
-          setError('Camera access denied')
-        })
-    }
+    let isActive = true
+    setError(null)
+    setStreamUrl(null)
 
-    // Cleanup function
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop())
+    const ports = [5001, 5000, 5002, 8000]
+
+    const findStream = async () => {
+      if (!isKitchen) {
+        return
+      }
+
+      for (const port of ports) {
+        try {
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), 1500)
+          const response = await fetch(`http://127.0.0.1:${port}/health`, {
+            signal: controller.signal
+          })
+          clearTimeout(timeoutId)
+
+          if (response.ok) {
+            // Found the detector! Use appropriate stream based on preview vs enlarged
+            const streamPath = enlarged ? '/stream' : '/stream-clean'
+            const streamEndpoint = `http://127.0.0.1:${port}${streamPath}?t=${Date.now()}`
+            if (isActive) {
+              setStreamUrl(streamEndpoint)
+              console.log(`[OK] Connected to detector on port ${port}`)
+            }
+            return
+          }
+        } catch (err) {
+          continue
+        }
+      }
+
+      if (isActive) {
+        setError('Detector not running - start with: npm run dev')
       }
     }
-  }, [isKitchen])
+
+    findStream()
+
+    return () => {
+      isActive = false
+    }
+  }, [isKitchen, enlarged])
 
   const getStatusColor = () => {
     switch (status) {
@@ -129,18 +152,27 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
               }}>
                 {error}
               </div>
-            ) : (
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
+            ) : streamUrl ? (
+              <img
+                src={streamUrl}
+                alt="Kitchen camera stream"
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover'
+                  objectFit: 'contain',
+                  objectPosition: 'center',
+                  backgroundColor: '#1a1410'
                 }}
               />
+            ) : (
+              <div style={{
+                color: '#d4c4a8',
+                fontSize: '0.7rem',
+                textAlign: 'center',
+                padding: '10px'
+              }}>
+                Connecting to detector stream...
+              </div>
             )}
           </>
         ) : (

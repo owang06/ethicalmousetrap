@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n \"NEXT,DETECTOR\" -c \"blue,green\" \"next dev\" \"python3 mouse_detector.py --background\"",
+    "dev": "concurrently -n \"NEXT,SMART\" -c \"blue,green\" \"next dev\" \"python mouse_detection/smart_detector.py\"",
     "dev:next": "next dev",
-    "dev:detector": "python3 mouse_detector.py --background",
+    "dev:detector": "python mouse_detector.py --background",
+    "dev:smart": "python mouse_detection/smart_detector.py",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
