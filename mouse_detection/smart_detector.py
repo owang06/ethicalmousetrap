@@ -40,6 +40,7 @@ class SmartMouseDetector:
         
         # Frame buffering for streaming
         self.current_frame = None
+        self.current_frame_clean = None
         self.frame_lock = threading.Lock()
         
         # Flask app
@@ -96,14 +97,22 @@ class SmartMouseDetector:
         
         @self.app.route('/stream')
         def stream():
-            return Response(self.generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+            return Response(self.generate_frames(clean=False), mimetype='multipart/x-mixed-replace; boundary=frame')
+        
+        @self.app.route('/stream-clean')
+        def stream_clean():
+            return Response(self.generate_frames(clean=True), mimetype='multipart/x-mixed-replace; boundary=frame')
     
-    def generate_frames(self):
-        """Generate MJPEG frames"""
+    def generate_frames(self, clean=False):
+        """Generate MJPEG frames
+        clean=True: frames without bounding boxes
+        clean=False: frames with bounding boxes
+        """
         while True:
             with self.frame_lock:
-                if self.current_frame is not None:
-                    ret, buffer = cv2.imencode('.jpg', self.current_frame)
+                frame_to_send = self.current_frame_clean if clean else self.current_frame
+                if frame_to_send is not None:
+                    ret, buffer = cv2.imencode('.jpg', frame_to_send)
                     frame_bytes = buffer.tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n'
