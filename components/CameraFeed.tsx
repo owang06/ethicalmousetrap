@@ -92,9 +92,9 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        flex: enlarged ? '1' : '1',
+        flex: enlarged ? '1 1 auto' : '1',
         minHeight: 0,
-        justifyContent: 'space-between'
+        justifyContent: enlarged ? 'stretch' : 'space-between'
       }}
       
       onMouseEnter={enlarged ? undefined : (e) => {
@@ -134,12 +134,13 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: enlarged ? '0' : '8px',
+        marginBottom: '0',
         border: enlarged ? 'none' : '2px solid #8b7355',
         position: 'relative',
         overflow: 'hidden',
-        flexShrink: 0,
-        flex: enlarged ? '1' : '0 0 auto'
+        flexShrink: enlarged ? 1 : 0,
+        flex: enlarged ? '1 1 auto' : '0 0 auto',
+        maxWidth: '100%'
       }}>
         {isKitchen ? (
           <>
@@ -159,9 +160,10 @@ export default function CameraFeed({ trapId, trapName, status, isSelected, onCli
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'contain',
+                  objectFit: enlarged ? 'cover' : 'contain',
                   objectPosition: 'center',
-                  backgroundColor: '#1a1410'
+                  backgroundColor: '#1a1410',
+                  display: 'block'
                 }}
               />
             ) : (

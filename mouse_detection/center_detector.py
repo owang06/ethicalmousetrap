@@ -29,7 +29,17 @@ class CenterDetector:
             self.cap = cv2.VideoCapture(0)
             if not self.cap.isOpened():
                 raise Exception("Could not open camera")
+            
+            # Set camera resolution to 1080p for better quality and standard 16:9 aspect
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+            
+            # Get actual resolution (in case camera doesn't support requested)
+            actual_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
             print("✓ Camera initialized")
+            print(f"✓ Resolution: {actual_width}x{actual_height}")
             print(f"✓ Center detection threshold: {self.center_threshold*100}%")
             print(f"✓ Persistence time: {self.persistence_time}s")
         except Exception as e:

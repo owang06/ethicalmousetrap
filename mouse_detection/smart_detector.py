@@ -9,6 +9,9 @@ Combines:
 import cv2
 import os
 import time
+import threading
+from flask import Flask, Response
+from flask_cors import CORS
 from center_detector import CenterDetector
 from mice_identifier import MouseDetector
 
@@ -27,12 +30,22 @@ class SmartMouseDetector:
         self.tracked_objects = {}
         self.object_history_timeout = 5
         self.last_detection_time = 0
-        # 0.5 Hz = one Gemini check every 2 seconds
-        self.detection_cooldown = 5.0
+        # Increase cooldown to 60 seconds to avoid quota limits
+        self.detection_cooldown = 60.0
         self.last_detection_result = None  # Store last detection result
         self.display_text = None  # Store text to display
         self.display_color = None  # Store display color
         self.rodent_detected = False  # Stop Gemini checks once a rodent is confirmed
+        self.quota_exceeded = False  # Track if we hit quota limits
+        
+        # Frame buffering for streaming
+        self.current_frame = None
+        self.frame_lock = threading.Lock()
+        
+        # Flask app
+        self.app = Flask(__name__)
+        CORS(self.app)
+        self.setup_routes()
     
     def is_new_object(self, center_x, center_y):
         """Check if object is new or already analyzed"""
@@ -75,12 +88,32 @@ class SmartMouseDetector:
         
         return frame[top:bottom, left:right]
     
-    def run(self):
-        """Main loop combining both detectors"""
-        print("\nRunning Smart Mouse Detector...")
-        print("YOLOv8: Detects if object is in center")
-        print("Gemini: Identifies if it's a mouse")
-        print("Press 'q' to quit\n")
+    def setup_routes(self):
+        """Setup Flask routes"""
+        @self.app.route('/health')
+        def health():
+            return {'status': 'ok'}, 200
+        
+        @self.app.route('/stream')
+        def stream():
+            return Response(self.generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    
+    def generate_frames(self):
+        """Generate MJPEG frames"""
+        while True:
+            with self.frame_lock:
+                if self.current_frame is not None:
+                    ret, buffer = cv2.imencode('.jpg', self.current_frame)
+                    frame_bytes = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n'
+                           b'Content-Length: ' + f'{len(frame_bytes)}'.encode() + b'\r\n\r\n'
+                           + frame_bytes + b'\r\n')
+            time.sleep(0.03)  # ~30 FPS
+    
+    def run_detection_loop(self):
+        """Main detection loop (runs in background thread)"""
+        print("\nRunning Smart Mouse Detector detection loop...")
         
         while True:
             ret, frame = self.center_detector.cap.read()
@@ -159,42 +192,53 @@ class SmartMouseDetector:
                 del self.center_detector.center_start_time[key]
             
             # If object confirmed in center for full duration, use mice_identifier to analyze
-            if (not self.rodent_detected and objects_in_center and
+            if (not self.quota_exceeded and not self.rodent_detected and objects_in_center and
                     (current_time - self.last_detection_time > self.detection_cooldown)):
                 obj = objects_in_center[0]
                 center_x = (obj[0] + obj[2]) / 2
                 center_y = (obj[1] + obj[3]) / 2
                 
                 if self.is_new_object(center_x, center_y):
-                    print(f"Object detected in center")
-                    print("Asking Gemini: Is this a mouse?")
+                    print(f"Object detected in center, analyzing with Gemini...")
                     
-                    # Crop frame and use mice_identifier's Gemini model
-                    cropped = self.crop_to_center(frame)
-                    temp_path = "temp_frame.jpg"
-                    cv2.imwrite(temp_path, cropped)
-                    result = self.mouse_identifier.detect_with_gemini(temp_path)
-                    
-                    print(f"GEMINI RESULT: {result}")
-                    
-                    # Store last detection result
-                    self.last_detection_result = result
-                    
-                    # Store display for persistent showing
-                    if 'NO MOUSE' in result.upper():
-                        self.display_text = "Not a mouse"
-                        self.display_color = (0, 255, 0)
-                    else:
-                        self.display_text = "MOUSE DETECTED!"
-                        self.display_color = (0, 0, 255)
-                        self.rodent_detected = True
-                        self.add_tracked_object(center_x, center_y)
+                    try:
+                        # Crop frame and use mice_identifier's Gemini model
+                        cropped = self.crop_to_center(frame)
+                        temp_path = "temp_frame.jpg"
+                        cv2.imwrite(temp_path, cropped)
+                        result = self.mouse_identifier.detect_with_gemini(temp_path)
                         
-                    
-                    self.last_detection_time = current_time
-                else:
-                    cv2.putText(frame, "⟳ Tracking same object...", (10, 60), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                        print(f"GEMINI RESULT: {result}")
+                        
+                        # Store last detection result
+                        self.last_detection_result = result
+                        
+                        # Store display for persistent showing
+                        if 'NO MOUSE' in result.upper():
+                            self.display_text = "Not a mouse"
+                            self.display_color = (0, 255, 0)
+                        else:
+                            self.display_text = "MOUSE DETECTED!"
+                            self.display_color = (0, 0, 255)
+                            self.rodent_detected = True
+                            self.add_tracked_object(center_x, center_y)
+                        
+                        self.last_detection_time = current_time
+                    except Exception as e:
+                        error_msg = str(e)
+                        if '429' in error_msg or 'quota' in error_msg.lower():
+                            print("[WARNING] Gemini API quota exceeded. Pausing detections...")
+                            self.quota_exceeded = True
+                            self.display_text = "API Quota Exceeded"
+                            self.display_color = (0, 165, 255)  # Orange
+                            # Reset after 60 seconds
+                            if current_time - self.last_detection_time > 60:
+                                self.quota_exceeded = False
+                                self.last_detection_time = current_time
+                        else:
+                            print(f"[ERROR] Detection failed: {error_msg}")
+                            self.display_text = "Detection Error"
+                            self.display_color = (0, 165, 255)
             
             # Use draw_center_zone from center_detector
             self.center_detector.draw_center_zone(frame)
@@ -212,7 +256,7 @@ class SmartMouseDetector:
             # Display last detection result at top
             if self.last_detection_result:
                 if 'MOUSE' in self.last_detection_result.upper() or 'RAT' in self.last_detection_result.upper():
-                    last_result_text = f"Last Detection: MOUSE/RAT DETECTED ⚠"
+                    last_result_text = f"Last Detection: MOUSE/RAT DETECTED"
                     result_color = (0, 0, 255)  # Red
                 else:
                     last_result_text = f"Last Detection: {self.last_detection_result}"
@@ -221,19 +265,26 @@ class SmartMouseDetector:
                 cv2.putText(frame, last_result_text, (10, 90), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, result_color, 2)
             
-            # Show frame
-            cv2.imshow("Smart Mouse Detector", frame)
+            # Store frame for MJPEG streaming
+            with self.frame_lock:
+                self.current_frame = frame.copy()
             
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            time.sleep(0.033)  # ~30 FPS
+    
+    def run(self):
+        """Start detector and Flask server"""
+        # Start detection loop in background thread
+        detection_thread = threading.Thread(target=self.run_detection_loop, daemon=True)
+        detection_thread.start()
         
-        self.cleanup()
+        # Start Flask server
+        print("\nFlask server starting on port 5001...")
+        self.app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
     
     def cleanup(self):
         """Cleanup resources"""
         if self.center_detector.cap:
             self.center_detector.cap.release()
-        cv2.destroyAllWindows()
         print("\n✓ Detector stopped")
 
 if __name__ == "__main__":
