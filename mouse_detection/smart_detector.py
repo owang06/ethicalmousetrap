@@ -252,6 +252,10 @@ class SmartMouseDetector:
             # Use draw_center_zone from center_detector
             self.center_detector.draw_center_zone(frame)
             
+            # Store clean frame (before adding detection info) for preview stream
+            with self.frame_lock:
+                self.current_frame_clean = frame.copy()
+            
             # Status
             status = f"Objects in center: {len(objects_in_center)}"
             cv2.putText(frame, status, (10, 30), 
@@ -274,7 +278,7 @@ class SmartMouseDetector:
                 cv2.putText(frame, last_result_text, (10, 90), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, result_color, 2)
             
-            # Store frame for MJPEG streaming
+            # Store frame for MJPEG streaming (with annotations)
             with self.frame_lock:
                 self.current_frame = frame.copy()
             
