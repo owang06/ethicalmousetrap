@@ -13,12 +13,12 @@ from center_detector import CenterDetector
 from mice_identifier import MouseDetector
 
 class SmartMouseDetector:
-    def __init__(self, center_threshold=0.6):
+    def __init__(self, center_threshold=0.4, persistence_time=1.0):
         """Initialize by combining center detector and mouse identifier"""
         print("Initializing Smart Mouse Detector...")
         
         # Import center detection from center_detector
-        self.center_detector = CenterDetector(center_threshold=center_threshold)
+        self.center_detector = CenterDetector(center_threshold=center_threshold, persistence_time=persistence_time)
         
         # Import mouse identification from mice_identifier
         self.mouse_identifier = MouseDetector()
@@ -93,30 +93,72 @@ class SmartMouseDetector:
             results = self.center_detector.model(frame, conf=0.5, verbose=False)
             
             objects_in_center = []
+            current_time = time.time()
+            detected_objects = set()
             
             # Check for objects in center
             for result in results:
                 for box in result.boxes:
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                     conf = box.conf[0].cpu().numpy()
+                    cls = int(box.cls[0].cpu().numpy())
+                    class_name = self.center_detector.model.names[cls]
                     
-                    # Use is_in_center from center_detector
-                    in_center = self.center_detector.is_in_center([x1, y1, x2, y2], w, h)
+                    # Calculate object center for stable tracking
+                    obj_center_x = (x1 + x2) / 2
+                    obj_center_y = (y1 + y2) / 2
                     
-                    # Draw box
-                    color = (0, 0, 255) if in_center else (0, 255, 0)
+                    # Bin coordinates to 50-pixel grid to handle small movements
+                    binned_x = int(obj_center_x / 50) * 50
+                    binned_y = int(obj_center_y / 50) * 50
+                    
+                    # Use is_in_center from center_detector (returns tuple)
+                    in_center, zone = self.center_detector.is_in_center([x1, y1, x2, y2], w, h)
+                    
+                    # Track persistence time using binned center coordinates
+                    obj_key = f"{class_name}_{binned_x}_{binned_y}"
+                    detected_objects.add(obj_key)
+                    
+                    time_in_center = 0
+                    confirmed_center = False
+                    
+                    if in_center:
+                        if obj_key not in self.center_detector.center_start_time:
+                            self.center_detector.center_start_time[obj_key] = current_time
+                        time_in_center = current_time - self.center_detector.center_start_time[obj_key]
+                        confirmed_center = time_in_center >= self.center_detector.persistence_time
+                    else:
+                        # Remove from tracking if not in center
+                        if obj_key in self.center_detector.center_start_time:
+                            del self.center_detector.center_start_time[obj_key]
+                    
+                    # Draw box with color based on confirmation status
+                    if confirmed_center:
+                        color = (0, 0, 255)  # Red if confirmed in center
+                        objects_in_center.append((x1, y1, x2, y2, conf))
+                    elif in_center:
+                        color = (0, 165, 255)  # Orange if in center but not yet confirmed
+                    else:
+                        color = (0, 255, 0)  # Green if not in center
+                    
                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
                     
-                    label = f"Object {conf:.2f}"
+                    label = f"{class_name}: {conf:.2f}"
                     if in_center:
-                        label += " (CENTER)"
-                        objects_in_center.append((x1, y1, x2, y2, conf))
+                        if confirmed_center:
+                            label += f" (DETECTED {time_in_center:.1f}s)"
+                        else:
+                            label += f" ({time_in_center:.1f}s/{self.center_detector.persistence_time}s)"
                     
                     cv2.putText(frame, label, (int(x1), int(y1) - 5), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             
-            # If object in center, use mice_identifier to analyze
-            current_time = time.time()
+            # Clean up old tracking entries  
+            keys_to_remove = [k for k in self.center_detector.center_start_time.keys() if k not in detected_objects]
+            for key in keys_to_remove:
+                del self.center_detector.center_start_time[key]
+            
+            # If object confirmed in center for full duration, use mice_identifier to analyze
             if (not self.rodent_detected and objects_in_center and
                     (current_time - self.last_detection_time > self.detection_cooldown)):
                 obj = objects_in_center[0]
@@ -195,5 +237,5 @@ class SmartMouseDetector:
         print("\n✓ Detector stopped")
 
 if __name__ == "__main__":
-    detector = SmartMouseDetector(center_threshold=0.6)
+    detector = SmartMouseDetector(center_threshold=0.4, persistence_time=1.0)
     detector.run()

@@ -7,15 +7,19 @@ Detects if objects are in the center of the webcam feed
 import cv2
 from ultralytics import YOLO
 import numpy as np
+import time
 
 class CenterDetector:
-    def __init__(self, center_threshold=0.2):
+    def __init__(self, center_threshold=0.4, persistence_time=1.0):
         """
         Initialize detector
         center_threshold: percentage of screen (0.2 = center 20% of screen)
+        persistence_time: seconds object must stay in center to be detected
         """
         self.model = YOLO("yolov8n.pt")  # Load COCO model
         self.center_threshold = center_threshold
+        self.persistence_time = persistence_time
+        self.center_start_time = {}
         self.cap = None
         self.init_camera()
         
@@ -27,6 +31,7 @@ class CenterDetector:
                 raise Exception("Could not open camera")
             print("✓ Camera initialized")
             print(f"✓ Center detection threshold: {self.center_threshold*100}%")
+            print(f"✓ Persistence time: {self.persistence_time}s")
         except Exception as e:
             print(f"✗ Camera error: {e}")
             exit(1)
@@ -106,6 +111,8 @@ class CenterDetector:
             
             center_objects = []
             center_count = 0
+            current_time = time.time()
+            detected_objects = set()
             
             # Process detections
             for result in results:
@@ -115,24 +122,63 @@ class CenterDetector:
                     cls = int(box.cls[0].cpu().numpy())
                     class_name = self.model.names[cls]
                     
+                    # Calculate object center for stable tracking
+                    obj_center_x = (x1 + x2) / 2
+                    obj_center_y = (y1 + y2) / 2
+                    
+                    # Bin coordinates to 50-pixel grid to handle small movements
+                    binned_x = int(obj_center_x / 50) * 50
+                    binned_y = int(obj_center_y / 50) * 50
+                    
                     # Check if in center
                     in_center, zone = self.is_in_center([x1, y1, x2, y2], w, h)
                     
+                    # Track persistence time using binned center coordinates
+                    obj_key = f"{class_name}_{binned_x}_{binned_y}"
+                    detected_objects.add(obj_key)
+                    
+                    time_in_center = 0
+                    confirmed_center = False
+                    
+                    if in_center:
+                        if obj_key not in self.center_start_time:
+                            self.center_start_time[obj_key] = current_time
+                        time_in_center = current_time - self.center_start_time[obj_key]
+                        confirmed_center = time_in_center >= self.persistence_time
+                    else:
+                        # Remove from tracking if not in center
+                        if obj_key in self.center_start_time:
+                            del self.center_start_time[obj_key]
+                    
                     # Draw bounding box
-                    color = (0, 0, 255) if in_center else (0, 255, 0)  # Red if in center, green if not
+                    if confirmed_center:
+                        color = (0, 0, 255)  # Red if confirmed in center
+                    elif in_center:
+                        color = (0, 165, 255)  # Orange if in center but not yet confirmed
+                    else:
+                        color = (0, 255, 0)  # Green if not in center
+                    
                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
                     
                     # Draw label
                     label = f"{class_name}: {conf:.2f}"
                     if in_center:
-                        label += " (CENTER)"
-                        center_count += 1
+                        if confirmed_center:
+                            label += f" (DETECTED {time_in_center:.1f}s)"
+                            center_count += 1
+                        else:
+                            label += f" ({time_in_center:.1f}s/{self.persistence_time}s)"
                     
                     cv2.putText(frame, label, (int(x1), int(y1) - 5), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                     
-                    if in_center:
+                    if confirmed_center:
                         center_objects.append((class_name, conf))
+            
+            # Clean up old tracking entries
+            keys_to_remove = [k for k in self.center_start_time.keys() if k not in detected_objects]
+            for key in keys_to_remove:
+                del self.center_start_time[key]
             
             # Draw center zone
             self.draw_center_zone(frame)
@@ -169,8 +215,9 @@ class CenterDetector:
 def main():
     # center_threshold: percentage of screen width/height that defines center zone
     # 0.2 = center 20% of screen (10% on each side from center)
-    # 0.5 = center 50% of screen (25% on each side from center)
-    detector = CenterDetector(center_threshold=0.6)
+    # 0.4 = center 40% of screen (20% on each side from center)
+    # persistence_time: seconds object must stay in center to be detected
+    detector = CenterDetector(center_threshold=0.4, persistence_time=0.5)
     detector.run()
 
 if __name__ == "__main__":
